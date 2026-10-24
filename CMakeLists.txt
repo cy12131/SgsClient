@@ -6,10 +6,20 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Quick Qml QuickControls2 Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Network Quick Qml QuickControls2 Test)
 
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
+
+qt_add_library(sgs-client-core STATIC
+    src/network/game_client.cpp
+    src/network/game_client.h
+    src/protocol/message_codec.cpp
+    src/protocol/message_codec.h
+)
+
+target_include_directories(sgs-client-core PUBLIC src)
+target_link_libraries(sgs-client-core PUBLIC Qt6::Core Qt6::Network)
 
 qt_add_executable(sgs-client
     src/main.cpp
@@ -25,6 +35,7 @@ qt_add_qml_module(sgs-client
 )
 
 target_link_libraries(sgs-client PRIVATE
+    sgs-client-core
     Qt6::Quick
     Qt6::Qml
     Qt6::QuickControls2
@@ -35,8 +46,10 @@ target_compile_definitions(sgs-client PRIVATE
 )
 
 if(MSVC)
+    target_compile_options(sgs-client-core PRIVATE /W4 /permissive-)
     target_compile_options(sgs-client PRIVATE /W4 /permissive-)
 else()
+    target_compile_options(sgs-client-core PRIVATE -Wall -Wextra -Wpedantic)
     target_compile_options(sgs-client PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
@@ -64,6 +77,17 @@ if(BUILD_TESTING)
 
     add_test(NAME sgs-client-smoke COMMAND sgs-client-smoke)
     set_tests_properties(sgs-client-smoke PROPERTIES TIMEOUT 20)
+
+    qt_add_executable(sgs-client-network-test tests/network_test.cpp)
+    target_link_libraries(sgs-client-network-test PRIVATE
+        sgs-client-core Qt6::Network Qt6::Test)
+    if(MSVC)
+        target_compile_options(sgs-client-network-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(sgs-client-network-test PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME sgs-client-network COMMAND sgs-client-network-test)
+    set_tests_properties(sgs-client-network PROPERTIES TIMEOUT 30)
 endif()
 
 include(GNUInstallDirs)
