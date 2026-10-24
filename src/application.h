@@ -1,6 +1,8 @@
 #pragma once
 
 #include "network/game_client.h"
+#include "models/lobby_model.h"
+#include "models/room_model.h"
 
 #include <QQmlApplicationEngine>
 
@@ -20,5 +22,7 @@ public:
 private:
     QGuiApplication &m_qtApplication;
     GameClient m_gameClient;
+    RoomModel m_roomModel;
+    LobbyModel m_lobbyModel;
     QQmlApplicationEngine m_engine;
 };
