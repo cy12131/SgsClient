@@ -1,0 +1,35 @@
+# CMake / Ninja build trees
+/build*/
+/out/
+CMakeUserPresets.json
+
+# Compiled artifacts
+*.exe
+*.dll
+*.obj
+*.o
+*.a
+*.lib
+*.pdb
+
+# Qt Creator local state
+CMakeLists.txt.user*
+*.qmlproject.user*
+*.pro.user*
+.qtc_clangd/
+
+# Editors and operating system
+.vs/
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+
+# Logs and local environment files
+*.log
+.env
+.env.*
+
+# Architecture reference only; the client has no runtime/build dependency on it
+/FreeKill-0.5.25.zip
