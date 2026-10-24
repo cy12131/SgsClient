@@ -77,6 +77,27 @@ Release 程序经仅用于验证的 `windeployqt` 部署到已忽略的 `build-r
 - 没有 TLS、认证、登录、大厅、房间、游戏状态、资源同步、Lua、自动重连或额外线程池。
 - `windeployqt` 产物只在忽略的构建目录用于 GUI 验证，不提交仓库，也不代表已制作安装包。
 
+## M1-I-F1：Qt TCP 代理修复与真实联调
+
+完成日期：2026-10-24（Asia/Shanghai）
+
+### 修复
+
+首次 Windows → Linux 联调时，系统代理配置导致 `QTcpSocket` 报告“对于这个操作代理类型是无效的”。`GameClient::connectToServer()` 现在会在每次 `connectToHost()` 前，仅对游戏服务器 Socket 设置 `QNetworkProxy::NoProxy`。该设置不修改应用级或 Windows 系统代理，也不会限制未来资源下载模块独立选择代理。
+
+`sgs-client-network` 新增代理回归用例：先把应用代理指向不可用的本机 HTTP 代理端口，再确认游戏 Socket 仍能直连本地测试服务器并完成 Hello/HelloAck。Debug、Release 均重新编译成功，两套 CTest 均为 2/2 通过。
+
+### 真实 Windows → Linux 联调（已实际测试）
+
+- Windows：`10.0.233.61`，接口“以太网 3”；Linux 服务端：`10.0.172.236:18765`。
+- `Test-NetConnection` 返回 `TcpTestSucceeded: True`。
+- Release GUI 实际完成 `TCP 已连接 → Hello #1 → HelloAck → Ready`，服务端报告 `SgsServer 0.1.0-dev`。
+- `Ping #2 → Pong #2`；指定中文文本经 `Echo #3 → EchoResult #3` 原文返回。
+- 连续执行 `Ping #4 → Pong #4`、混合中英文/空格/标点/特殊字符的 `Echo #5 → EchoResult #5`，ID 和原文均匹配，无重复响应。
+- 主动断开后状态回到“未连接”，Ping/Echo 控件禁用；再次连接重新发送 Hello #1，并再次进入 Ready。
+
+本次没有修改 SGS/1 协议或 Linux 服务端，没有测试需要服务端配合的异常主动断开，也没有进入 M2。
+
 ---
 
 ## M0 历史记录

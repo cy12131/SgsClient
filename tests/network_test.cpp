@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QHostAddress>
 #include <QJsonDocument>
+#include <QNetworkProxy>
 #include <QSignalSpy>
 #include <QTcpServer>
 #include <QTcpSocket>
@@ -108,6 +109,20 @@ bool completeHandshake(GameClient &client, QTcpSocket *peer)
     return waitUntil([&client] { return client.state() == GameClient::Ready; });
 }
 
+class ApplicationProxyGuard final
+{
+public:
+    ApplicationProxyGuard()
+        : m_previous(QNetworkProxy::applicationProxy())
+    {
+    }
+
+    ~ApplicationProxyGuard() { QNetworkProxy::setApplicationProxy(m_previous); }
+
+private:
+    QNetworkProxy m_previous;
+};
+
 } // namespace
 
 class NetworkTest final : public QObject
@@ -120,6 +135,7 @@ private slots:
     void commonFieldsAreStrictlyValidated();
     void fragmentedAndCoalescedFramesAreDecoded();
     void invalidFramesAreRejected();
+    void gameSocketBypassesApplicationProxy();
     void helloAckEntersReady();
     void pingRequiresMatchingResponseId();
     void echoPreservesChineseText();
@@ -206,6 +222,21 @@ void NetworkTest::invalidFramesAreRejected()
     QVERIFY(MessageCodec::encode(message(
         QStringLiteral("Echo"), 3, {{QStringLiteral("text"), QString::fromLatin1(oversizedText)}}),
         &error).isEmpty());
+}
+
+void NetworkTest::gameSocketBypassesApplicationProxy()
+{
+    ApplicationProxyGuard proxyGuard;
+    Q_UNUSED(proxyGuard);
+    QNetworkProxy::setApplicationProxy(QNetworkProxy(
+        QNetworkProxy::HttpProxy, QStringLiteral("127.0.0.1"), 1));
+
+    QTcpServer server;
+    GameClient client;
+    QScopedPointer<QTcpSocket> peer(connectPeer(client, server));
+    QVERIFY2(peer, "The SGS socket did not bypass the application proxy");
+    QVERIFY(completeHandshake(client, peer.data()));
+    QCOMPARE(client.state(), GameClient::Ready);
 }
 
 void NetworkTest::helloAckEntersReady()

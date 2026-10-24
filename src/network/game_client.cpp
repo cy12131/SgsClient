@@ -2,6 +2,7 @@
 
 #include <QAbstractSocket>
 #include <QCoreApplication>
+#include <QNetworkProxy>
 
 namespace {
 
@@ -108,6 +109,10 @@ void GameClient::connectToServer(const QString &host, const int port)
         m_lastError.clear();
         emit lastErrorChanged();
     }
+    // SGS 游戏连接是到指定服务器的原始 TCP 连接，不应继承 Windows 的 HTTP/SOCKS
+    // 系统代理。这里按 Socket 设置而非修改应用全局代理，避免影响未来资源下载等模块；
+    // 每次连接前重新指定，也可保证断开后重连仍保持直连行为。
+    m_socket.setProxy(QNetworkProxy(QNetworkProxy::NoProxy));
     setState(Connecting);
     appendLog(QStringLiteral("正在连接 %1:%2 …").arg(host.trimmed()).arg(port));
     m_socket.connectToHost(host.trimmed(), static_cast<quint16>(port));
