@@ -3,6 +3,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QGuiApplication>
+#include <QQmlContext>
 #include <QTimer>
 
 #ifndef SGS_CLIENT_VERSION
@@ -29,6 +30,7 @@ bool Application::initialize()
         [] { QCoreApplication::exit(EXIT_FAILURE); },
         Qt::QueuedConnection);
 
+    m_engine.rootContext()->setContextProperty(QStringLiteral("gameClient"), &m_gameClient);
     m_engine.loadFromModule(QStringLiteral("SgsClient"), QStringLiteral("Main"));
     if (m_engine.rootObjects().isEmpty()) {
         qCritical() << "无法加载主 QML 界面。";

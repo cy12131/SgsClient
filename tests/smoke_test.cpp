@@ -1,3 +1,5 @@
+#include <QDir>
+#include <QLibraryInfo>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QString>
@@ -20,6 +22,9 @@ void SmokeTest::qmlApplicationStartsAndStops()
     QProcess process;
     auto environment = QProcessEnvironment::systemEnvironment();
     environment.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+    environment.insert(
+        QStringLiteral("QT_QPA_PLATFORM_PLUGIN_PATH"),
+        QDir(QLibraryInfo::path(QLibraryInfo::PluginsPath)).filePath(QStringLiteral("platforms")));
     process.setProcessEnvironment(environment);
     process.setProgram(QString::fromUtf8(SGS_CLIENT_EXECUTABLE));
     process.setArguments({QStringLiteral("--smoke-test")});

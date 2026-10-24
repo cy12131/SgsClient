@@ -1,11 +1,11 @@
 # SgsClient
 
-SgsClient 是自主开发的多人在线回合制卡牌游戏 Windows 客户端。本仓库当前处于 M0：提供独立、可构建、可测试的 Qt Quick/QML 应用外壳，不包含联网与游戏逻辑，也不依赖 FreeKill 运行。
+SgsClient 是自主开发的多人在线回合制卡牌游戏 Windows 客户端。M1-C 提供遵循 SGS/1 的 Qt TCP 调试客户端；项目不依赖 FreeKill 运行。
 
 ## 技术栈
 
 - C++20
-- Qt 6（Quick、QML、Quick Controls 2、Qt Test）
+- Qt 6（Core、Network、Quick、QML、Quick Controls 2、Qt Test）
 - CMake + Ninja
 - Windows 10/11；MinGW 64 位或与所装 Qt 匹配的 MSVC 64 位工具链
 
@@ -13,7 +13,7 @@ SgsClient 是自主开发的多人在线回合制卡牌游戏 Windows 客户端�
 
 ## 依赖环境
 
-- Qt 6.5 或更高版本，包含 Qt Quick、Qt QML、Qt Quick Controls 2
+- Qt 6.5 或更高版本，包含 Qt Network、Qt Quick、Qt QML、Qt Quick Controls 2
 - CMake 3.21 或更高版本
 - 支持 C++20 的编译器
 - Ninja（推荐）或其他受 CMake 支持的生成器
@@ -48,17 +48,19 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-自动测试在 Qt `offscreen` 平台上真正创建 QML 主窗口后退出，用于发现缺失模块和 QML 加载错误。它不能替代人工可见窗口检查；M0 验收还需启动正常程序，确认窗口显示、标题正确且能够关闭。
+测试包括离屏 QML 冒烟测试，以及使用本机 `QTcpServer` 替身的协议/连接测试。本地 Socket 测试不等同于 Linux 服务端跨设备联调。自动化测试不能替代可见窗口检查。
 
 ## 当前功能
 
 - 独立的 `Application` 启动外壳与 QML 引擎生命周期管理
-- “SGS Client”桌面主窗口、版本显示和基础界面
-- “进入游戏”占位入口，点击后明确提示功能开发中
-- CTest/Qt Test 冒烟测试
+- SGS/1 大端长度帧、严格 UTF-8/JSON 编解码与增量收包
+- 异步 TCP 连接、Hello/HelloAck、Ping/Pong、Echo/EchoResult 和 Error 展示
+- `Disconnected / Connecting / Handshaking / Ready` 状态与 10 秒握手超时
+- 地址、端口、连接、断开、Ping、中文 Echo 和有限日志调试界面
+- CTest/Qt Test 冒烟及本地模拟服务器测试
 
 ## 尚未实现
 
-网络通信、协议、账号、大厅、房间、牌桌、卡牌、武将、技能、Lua、皮肤、音效、动画和正式资源系统均不在 M0 范围内。
+真实 Linux 服务端跨设备联调、TLS、认证、登录、大厅、房间、牌桌、卡牌、武将、技能、Lua、资源同步、自动重连和正式 UI 均未实现。
 
-更多设计边界见 [docs/architecture.md](docs/architecture.md)，实测状态见 [docs/milestone_status.md](docs/milestone_status.md)。
+协议见 [docs/protocol.md](docs/protocol.md)，设计边界见 [docs/architecture.md](docs/architecture.md)，实测状态见 [docs/milestone_status.md](docs/milestone_status.md)。

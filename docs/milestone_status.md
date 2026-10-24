@@ -1,4 +1,106 @@
-# M0 里程碑状态
+# SgsClient 里程碑状态
+
+## M1-C：Qt TCP 客户端与 SGS/1
+
+完成日期：2026-10-24（Asia/Shanghai）
+
+### 1. 项目与 Git
+
+- 绝对路径：`D:\Game\NewKill`
+- 开发分支：`feature/m1-network-client`
+- 基线：`3e589b0 chore: initialize SGS client M0`
+- 本阶段按要求不合并 `main`、不自动推送远程。
+
+### 2. 新增与修改
+
+- 新增 `src/protocol/message_codec.h/.cpp`：SGS/1 JSON、长度帧和增量接收缓冲。
+- 新增 `src/network/game_client.h/.cpp`：异步 Socket、握手、请求匹配、发送队列和错误处理。
+- 新增 `tests/network_test.cpp`：协议单元测试及本地 `QTcpServer` 集成替身。
+- 新增 `docs/protocol.md`：同步自 SgsServer `feature/m1-network-server` 提交 `dfc957a`。
+- 修改 `Application`：拥有 `GameClient` 并在 QML 引擎加载前暴露上下文属性。
+- 修改 `Main.qml`：网络地址、端口、连接状态、Ping、中文 Echo 和有限日志界面。
+- 修改 CMake、README 和架构文档，加入 Qt Network 与 M1-C 说明。
+
+### 3. 生命周期和执行链
+
+`Application` 按“GameClient 先构造、QML 引擎后构造”的顺序持有二者，逆序销毁时 QML 不会引用已销毁网络对象。`GameClient` 以值成员拥有 `QTcpSocket` 和单次 `QTimer`，不创建额外线程。
+
+启动链：QML 调用 `connectToServer` → `Connecting` → TCP `connected` → `Handshaking` → 自动发送 Hello #1 并启动 10 秒定时器 → 收到合法且 ID 匹配的 HelloAck → `Ready`。连接失败、主动断开、远端关闭或致命协议错误都会清理接收缓存、待处理表和发送队列并回到 `Disconnected`。
+
+显式析构先停止定时器、断开 Socket 信号并 `abort()`，防止 `QTcpSocket` 在其他成员析构期间发出回调。该问题由连续网络测试实际发现并修复。
+
+### 4. 协议和缓冲
+
+`MessageCodec` 用 `QByteArray` 累积任意分段输入：少于 4 字节时等待；取得大端长度后先验证 1～65536，再等待完整 body；完整后严格验证无 BOM、有效 UTF-8、JSON 对象及四个公共字段，并继续循环解析同批粘连帧。任何错误都在分配大块内存前被拒绝。
+
+请求 ID 在 1～2147483647 内循环分配，并跳过待处理 ID，不发生有符号溢出。待处理表记录 Hello/Ping/Echo 的预期响应和 Echo 原文；未知或不匹配 ID 不完成请求。`UNSUPPORTED_PROTOCOL` 会立即终止会话，其他合法 Error 显示到日志/UI，并依据服务端后续连接状态更新。
+
+发送端使用 FIFO 完整帧队列和帧内偏移；`QTcpSocket::write` 部分接受时保留剩余字节，`bytesWritten` 后继续提交，负返回值会报告错误并断开。
+
+### 5. 环境与构建（已实际测试）
+
+| 项目 | 结果 |
+| --- | --- |
+| Qt | 6.11.2：Core、Network、Qml、Quick、Quick Controls 2、Test |
+| 编译器 | MinGW-w64 G++ 13.1.0，C++20 |
+| CMake / Ninja | 3.30.5 / 1.12.1 |
+| Debug | 配置与完整编译成功 |
+| Release | 独立目录配置与完整编译成功 |
+
+Qt 的可选 Vulkan headers 未安装，但本项目不使用 Vulkan，不影响编译和运行。
+
+### 6. CTest（已实际测试）
+
+| 构建 | 结果 | 最终用时 |
+| --- | --- | --- |
+| Debug | 2/2 通过，0 失败 | 5.08 秒（最终回归） |
+| Release | 2/2 通过，0 失败 | 5.27 秒（最终回归） |
+
+`sgs-client-smoke` 保持 M0 的离屏 QML 加载检查。`sgs-client-network` 使用本机 `127.0.0.1` 临时端口和 `QTcpServer` 测试替身，覆盖大端编码、严格公共字段、中文 UTF-8、1～3 字节头/分段 body、连续多帧、非法长度、BOM、无效 UTF-8/JSON、超长编码、HelloAck Ready、错误响应 ID、Ping/Pong、EchoResult 原文、异常断线、连接失败后重试、握手超时、普通 Error 展示和 `UNSUPPORTED_PROTOCOL` 终止会话。测试均有 30 秒 CTest 总超时，内部等待不超过 5 秒。
+
+沙箱内首次运行 loopback 被系统策略以 `Permission denied` 拦截；在受控沙箱外仅连接 `127.0.0.1` 重跑后全部通过。这一环境限制不计为产品失败。
+
+### 7. GUI（已实际测试）
+
+Release 程序经仅用于验证的 `windeployqt` 部署到已忽略的 `build-release/bin` 后，以真实 Windows 桌面窗口启动。窗口标题为 `SGS Client`，截图和 UI Automation 树同时确认：
+
+- 状态为“未连接”；地址/端口为 `127.0.0.1:18765`。
+- “连接”可用；“断开”和“Ping”禁用。
+- Echo 输入与“发送 Echo”禁用，中文默认文本显示正确。
+- 版本 `0.1.0-dev` 与通信日志区域显示正常。
+- 使用窗口关闭按钮后目标窗口消失，无残留窗口。
+
+### 8. 测试边界与已知限制
+
+- 本阶段没有对真实 Linux SgsServer 做跨设备联调；所有网络自动化结果均来自本地 `QTcpServer` 替身，不能伪装成真实服务端测试。
+- 服务端默认监听 `127.0.0.1:18765`；跨设备联调前需由服务端显式配置监听地址并限制暴露范围。
+- 没有 TLS、认证、登录、大厅、房间、游戏状态、资源同步、Lua、自动重连或额外线程池。
+- `windeployqt` 产物只在忽略的构建目录用于 GUI 验证，不提交仓库，也不代表已制作安装包。
+
+## M1-I-F1：Qt TCP 代理修复与真实联调
+
+完成日期：2026-10-24（Asia/Shanghai）
+
+### 修复
+
+首次 Windows → Linux 联调时，系统代理配置导致 `QTcpSocket` 报告“对于这个操作代理类型是无效的”。`GameClient::connectToServer()` 现在会在每次 `connectToHost()` 前，仅对游戏服务器 Socket 设置 `QNetworkProxy::NoProxy`。该设置不修改应用级或 Windows 系统代理，也不会限制未来资源下载模块独立选择代理。
+
+`sgs-client-network` 新增代理回归用例：先把应用代理指向不可用的本机 HTTP 代理端口，再确认游戏 Socket 仍能直连本地测试服务器并完成 Hello/HelloAck。Debug、Release 均重新编译成功，两套 CTest 均为 2/2 通过。
+
+### 真实 Windows → Linux 联调（已实际测试）
+
+- Windows：`10.0.233.61`，接口“以太网 3”；Linux 服务端：`10.0.172.236:18765`。
+- `Test-NetConnection` 返回 `TcpTestSucceeded: True`。
+- Release GUI 实际完成 `TCP 已连接 → Hello #1 → HelloAck → Ready`，服务端报告 `SgsServer 0.1.0-dev`。
+- `Ping #2 → Pong #2`；指定中文文本经 `Echo #3 → EchoResult #3` 原文返回。
+- 连续执行 `Ping #4 → Pong #4`、混合中英文/空格/标点/特殊字符的 `Echo #5 → EchoResult #5`，ID 和原文均匹配，无重复响应。
+- 主动断开后状态回到“未连接”，Ping/Echo 控件禁用；再次连接重新发送 Hello #1，并再次进入 Ready。
+
+本次没有修改 SGS/1 协议或 Linux 服务端，没有测试需要服务端配合的异常主动断开，也没有进入 M2。
+
+---
+
+## M0 历史记录
 
 完成日期：2026-10-24（Asia/Shanghai）
 
