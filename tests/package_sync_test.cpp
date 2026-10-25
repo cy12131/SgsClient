@@ -182,6 +182,11 @@ void PackageSyncTest::jcsAndManifestIdVectors()
         QString(64, QLatin1Char('b')), {QStringLiteral("org.sgs.base")}};
     QCOMPARE(calculateManifestId({standard, base}),
              QStringLiteral("1b773ff47e081a15bc050331b8beabe6e1e6ee001301ccc11c7249bfe70cf4d8"));
+    QString invalidUnicode;
+    invalidUnicode.append(QChar(0xd800));
+    canonicalError.clear();
+    QVERIFY(canonicalizeJson(invalidUnicode, &canonicalError).isEmpty());
+    QVERIFY(canonicalError.contains(QStringLiteral("surrogate")));
 }
 
 void PackageSyncTest::strictManifestAndDependencyValidation()

@@ -43,11 +43,28 @@ QByteArray quote(const QString &text)
     return out;
 }
 
+bool validUnicode(const QString &text)
+{
+    for (qsizetype i = 0; i < text.size(); ++i) {
+        const QChar ch = text.at(i);
+        if (ch.isHighSurrogate()) {
+            if (i + 1 >= text.size() || !text.at(i + 1).isLowSurrogate()) return false;
+            ++i;
+        } else if (ch.isLowSurrogate()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool append(const QJsonValue &value, QByteArray *out, QString *error)
 {
     if (value.isNull()) { *out += "null"; return true; }
     if (value.isBool()) { *out += value.toBool() ? "true" : "false"; return true; }
-    if (value.isString()) { *out += quote(value.toString()); return true; }
+    if (value.isString()) {
+        if (!validUnicode(value.toString())) { fail(error, QStringLiteral("JCS 不允许未配对的 Unicode surrogate。")); return false; }
+        *out += quote(value.toString()); return true;
+    }
     if (value.isDouble()) {
         const double number = value.toDouble();
         if (!std::isfinite(number)) { fail(error, QStringLiteral("JCS 不允许非有限数字。")); return false; }
@@ -106,6 +123,7 @@ bool append(const QJsonValue &value, QByteArray *out, QString *error)
         std::sort(keys.begin(), keys.end(), [](const QString &a, const QString &b) { return a < b; });
         for (qsizetype i = 0; i < keys.size(); ++i) {
             if (i) *out += ',';
+            if (!validUnicode(keys.at(i))) { fail(error, QStringLiteral("JCS 对象键包含未配对的 Unicode surrogate。")); return false; }
             *out += quote(keys.at(i));
             *out += ':';
             if (!append(object.value(keys.at(i)), out, error)) return false;

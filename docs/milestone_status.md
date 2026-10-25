@@ -30,8 +30,8 @@
 ### 实际测试结果
 
 - M2 开发前基线：Debug、Release 原有 3/3 CTest 均通过。
-- Debug：配置、完整编译成功；新增后 4/4 CTest 通过（最终全量 13.20 秒）。
-- Release：独立配置、完整编译成功；新增后 4/4 CTest 通过（最终全量 12.89 秒）。
+- Debug：配置、完整编译成功；新增后最终全量 4/4 CTest 通过。
+- Release：独立配置、完整编译成功；新增后最终全量 4/4 CTest 通过。
 - 本地资源包测试覆盖空清单、首装、缓存命中、缺包、commit 变化、无效 URL、目标 commit 不存在、Manifest 哈希失败、依赖缺失/版本不符/环、失败保留旧 active、错误 manifest_id、PackageReady、断线重同步及 Qt 事件循环响应。
 - 真实公开 CNB：从 `https://cnb.cool/sgs-project/sgs-test-mode.git` 下载提交 `9d38a4a970448ca17bfbf7c61f20ab77f6f12451`，原始 Manifest SHA-256 `d267e42891b2ac4729a21e90ac44a8f6aa1a285d4f14ef8ed68f351ec29b9941`；首次安装与第二次缓存复用均实际 PASS。
 - 真实 Linux M3 服务端联调：未执行。本任务没有提供独立 M3 测试服务器地址，且按限制未触碰既有 M2 服务；不得把本地 `QTcpServer` 或公开 Git 测试记为跨设备联调。
