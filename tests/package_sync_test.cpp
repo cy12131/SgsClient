@@ -240,6 +240,19 @@ void PackageSyncTest::firstInstallCacheCommitChangeAndRollback()
     QVERIFY2(first.success, qPrintable(first.error)); QCOMPARE(first.installed, QStringList{repo.spec().id});
     const QString firstPath = QDir(root.path()).filePath(QStringLiteral("installed/%1/%2").arg(repo.spec().id, repo.commit));
     QVERIFY(QFileInfo::exists(firstPath));
+    QFile firstActive(root.filePath(QStringLiteral("active.json")));
+    QVERIFY(firstActive.open(QIODevice::ReadOnly));
+    const QByteArray firstActiveBytes = firstActive.readAll();
+    firstActive.close();
+    auto unavailable = repo.spec(QString(40, QLatin1Char('f')));
+    unavailable.repositoryUrl = QUrl::fromLocalFile(root.filePath(QStringLiteral("missing-repository"))).toString();
+    const auto downloadFailure = installer.synchronize(setFor({unavailable}), cancelled);
+    QCOMPARE(downloadFailure.errorCode, QStringLiteral("PACKAGE_DOWNLOAD_FAILED"));
+    QFile activeAfterFailure(root.filePath(QStringLiteral("active.json")));
+    QVERIFY(activeAfterFailure.open(QIODevice::ReadOnly));
+    QCOMPARE(activeAfterFailure.readAll(), firstActiveBytes);
+    activeAfterFailure.close();
+    QVERIFY(QFileInfo::exists(firstPath));
     auto cached = installer.synchronize(setFor({repo.spec()}), cancelled);
     QVERIFY2(cached.success, qPrintable(cached.error)); QCOMPARE(cached.reused, QStringList{repo.spec().id});
 
