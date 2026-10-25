@@ -21,7 +21,31 @@ Item {
                 Label { text: roomModel.currentUserOwner ? qsTr("房主") : (roomModel.currentUserReady ? qsTr("已准备") : qsTr("未准备")); color: roomModel.currentUserOwner ? "#e7bf72" : (roomModel.currentUserReady ? "#6fe09b" : "#b7c4ce"); font.pixelSize: 18; font.bold: true }
                 Button { visible: !roomModel.currentUserOwner; text: roomModel.currentUserReady ? qsTr("取消准备") : qsTr("准备"); enabled: !roomModel.busy; onClicked: roomModel.setReady(!roomModel.currentUserReady) }
                 Button { visible: roomModel.currentUserOwner; text: qsTr("开始游戏（未实现）"); enabled: false }
-                Button { text: qsTr("退出房间"); enabled: !roomModel.busy; onClicked: roomModel.leaveRoom() }
+                Button {
+                    id: leaveRoomButton
+                    text: qsTr("退出房间")
+                    enabled: !roomModel.busy
+                    leftPadding: 16
+                    rightPadding: 16
+                    font.bold: true
+                    contentItem: Text {
+                        text: leaveRoomButton.text
+                        color: leaveRoomButton.enabled ? "#fff2ef" : "#9aa8b2"
+                        font: leaveRoomButton.font
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    background: Rectangle {
+                        radius: 6
+                        color: !leaveRoomButton.enabled ? "#2a353e"
+                              : leaveRoomButton.down ? "#6f2e2b"
+                              : leaveRoomButton.hovered ? "#a64a43"
+                              : "#873b36"
+                        border.width: 1
+                        border.color: leaveRoomButton.enabled ? "#d77a70" : "#53626d"
+                    }
+                    onClicked: roomModel.leaveRoom()
+                }
             }
         }
         RowLayout {
