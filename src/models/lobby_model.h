@@ -4,6 +4,7 @@
 #include <QVariantList>
 
 class GameClient;
+class PackageSyncManager;
 class QJsonObject;
 class RoomModel;
 
@@ -22,10 +23,12 @@ class LobbyModel final : public QObject
     Q_PROPERTY(QString errorText READ errorText NOTIFY errorTextChanged)
 
 public:
-    enum Phase { Offline, Connecting, Handshaking, CommunicationReady, EnteringLobby, Lobby, InRoom };
+    enum Phase { Offline, Connecting, Handshaking, SynchronizingPackages,
+                 CommunicationReady, EnteringLobby, Lobby, InRoom };
     Q_ENUM(Phase)
 
-    explicit LobbyModel(GameClient &client, RoomModel &roomModel, QObject *parent = nullptr);
+    explicit LobbyModel(GameClient &client, PackageSyncManager &packageSync,
+                        RoomModel &roomModel, QObject *parent = nullptr);
 
     [[nodiscard]] Phase phase() const { return m_phase; }
     [[nodiscard]] QString phaseText() const;
@@ -61,6 +64,7 @@ private:
     void setError(const QString &message);
 
     GameClient &m_client;
+    PackageSyncManager &m_packageSync;
     RoomModel &m_roomModel;
     Phase m_phase = Offline;
     qint64 m_userId = 0;

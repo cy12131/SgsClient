@@ -1,11 +1,11 @@
 # SgsClient
 
-SgsClient 是自主开发的多人在线回合制卡牌游戏 Windows 客户端。M2-C 在 SGS/1 TCP 基础上提供临时用户大厅与等待房间；项目不依赖 FreeKill 运行。
+SgsClient 是自主开发的多人在线回合制卡牌游戏 Windows 客户端。M3-A-C 在 SGS/1 TCP、大厅和等待房间基础上增加服务端锁定资源包的自动同步；项目不依赖 FreeKill 运行。
 
 ## 技术栈
 
 - C++20
-- Qt 6（Core、Network、Quick、QML、Quick Controls 2、Qt Test）
+- Qt 6（Core、Concurrent、Network、Quick、QML、Quick Controls 2、Qt Test）
 - CMake + Ninja
 - Windows 10/11；MinGW 64 位或与所装 Qt 匹配的 MSVC 64 位工具链
 
@@ -17,6 +17,7 @@ SgsClient 是自主开发的多人在线回合制卡牌游戏 Windows 客户端�
 - CMake 3.21 或更高版本
 - 支持 C++20 的编译器
 - Ninja（推荐）或其他受 CMake 支持的生成器
+- Git 命令行客户端（资源包通过公开 HTTPS Git 仓库同步）
 
 ## 配置与构建
 
@@ -48,7 +49,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-测试包括离屏 QML 冒烟测试，以及使用本机 `QTcpServer` 替身的协议、连接、大厅与房间状态测试。本地 Socket 测试不等同于 Linux 服务端跨设备联调。自动化测试不能替代可见窗口检查。
+测试包括离屏 QML 冒烟测试、本机 `QTcpServer` 协议/大厅替身，以及使用临时 Git 仓库的资源包事务测试。公开 CNB 实测可设置 `SGS_RUN_PUBLIC_PACKAGE_TEST=1` 后单独运行 `sgs-client-package-sync-test publicCnbFirstDownloadAndCache`；普通 CTest 不依赖公网。
 
 ## 当前功能
 
@@ -59,10 +60,14 @@ ctest --test-dir build --output-on-failure
 - 临时昵称进入大厅、房间列表刷新、创建与加入房间
 - 服务端权威的固定座位、房主与准备状态，以及离开房间
 - `RoomListChanged` 自动刷新、`RoomSnapshot` revision 去重和断线清理
+- `GetPackageManifest → PackageReadyResult` 大厅门禁及空清单确认
+- 后台 HTTPS Git 下载、完整 commit/Manifest SHA-256/依赖/API/路径校验
+- staging 安装、不可变 commit 目录和 `active.json` 原子激活；失败保留上一可用集合
+- 独立同步状态、进度、错误原因与重试界面
 - 连接页、大厅页、等待房间页，以及 CTest/Qt Test 本地模拟服务器测试
 
 ## 尚未实现
 
-M2 真实 Linux 服务端跨设备联调、持久账号认证、匹配、开局、牌桌、卡牌、武将、技能、Lua、资源同步、自动重连和正式美术资源包均未实现。
+M3-A 客户端尚未与真实 Linux M3 服务端联调（本任务未提供独立 M3 测试地址）。持久账号、匹配、开局、牌桌、Lua 执行、动态 QML 游戏宿主、资源包热加载、私有仓库凭据和自动重连均未实现。
 
 协议见 [docs/protocol.md](docs/protocol.md)，设计边界见 [docs/architecture.md](docs/architecture.md)，实测状态见 [docs/milestone_status.md](docs/milestone_status.md)。

@@ -6,7 +6,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Network Quick Qml QuickControls2 Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Concurrent Network Quick Qml QuickControls2 Test)
 
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
@@ -18,12 +18,20 @@ qt_add_library(sgs-client-core STATIC
     src/models/room_model.h
     src/network/game_client.cpp
     src/network/game_client.h
+    src/packages/jcs_canonicalizer.cpp
+    src/packages/jcs_canonicalizer.h
+    src/packages/package_installer.cpp
+    src/packages/package_installer.h
+    src/packages/package_manifest.cpp
+    src/packages/package_manifest.h
+    src/packages/package_sync_manager.cpp
+    src/packages/package_sync_manager.h
     src/protocol/message_codec.cpp
     src/protocol/message_codec.h
 )
 
 target_include_directories(sgs-client-core PUBLIC src)
-target_link_libraries(sgs-client-core PUBLIC Qt6::Core Qt6::Network)
+target_link_libraries(sgs-client-core PUBLIC Qt6::Concurrent Qt6::Core Qt6::Network)
 
 qt_add_executable(sgs-client
     src/main.cpp
@@ -36,6 +44,7 @@ qt_add_qml_module(sgs-client
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/PackageSyncPanel.qml
         qml/Shell.qml
         qml/Lobby.qml
         qml/WaitingRoom.qml
@@ -106,6 +115,17 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME sgs-client-lobby-room COMMAND sgs-client-lobby-room-test)
     set_tests_properties(sgs-client-lobby-room PROPERTIES TIMEOUT 40)
+
+    qt_add_executable(sgs-client-package-sync-test tests/package_sync_test.cpp)
+    target_link_libraries(sgs-client-package-sync-test PRIVATE
+        sgs-client-core Qt6::Concurrent Qt6::Network Qt6::Test)
+    if(MSVC)
+        target_compile_options(sgs-client-package-sync-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(sgs-client-package-sync-test PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME sgs-client-package-sync COMMAND sgs-client-package-sync-test)
+    set_tests_properties(sgs-client-package-sync PROPERTIES TIMEOUT 90)
 endif()
 
 include(GNUInstallDirs)

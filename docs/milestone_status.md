@@ -1,5 +1,48 @@
 # SgsClient 里程碑状态
 
+## M3-A-C：客户端资源包自动同步
+
+完成日期：2026-10-26（Asia/Shanghai）
+
+### 项目、基线与分支
+
+- 正式目录：`D:\Game\NewKill`
+- M2 基线：`v0.3.0-m2` / `27abb310e3af01110d57e22db7f74758d1504a2a`
+- 开发分支：`feature/m3-a-client-packages`
+- 契约基线：SgsArchitecture `422016ed12a6c982bdd9e72f75590ec4ca9b5614`
+- 服务端参考：SgsServer `ee022ef9979295a15482c52b17df7c9a4de4b093`
+
+### 新增模块
+
+- `PackageSyncManager`：每 Session 的清单请求、后台任务、PackageReady 门禁、取消/重试和 QML 状态。
+- `PackageInstaller`：安全 Git 子进程、staging、commit/Manifest/路径校验、不可变缓存和原子 active 索引。
+- `package_manifest`：同步清单严格解析、API/依赖图与 SemVer 比较器范围验证、manifest_id。
+- `jcs_canonicalizer`：RFC 8785 确定性 JSON 编码。
+- `PackageSyncPanel.qml`：当前包、阶段、错误、安装路径和重试操作。
+- `package_sync_test.cpp`：本地 Git、回环协议门禁、事务失败及主线程响应性测试。
+
+### 状态机与执行链
+
+`Disconnected → Handshaking → FetchingManifest → CheckingPackages → Downloading → Verifying → Ready/Failed`。HelloAck 只使 SGS/1 通信可用；所有包成功原子激活并收到 `PackageReadyResult.ready=true` 后，LobbyModel 才发送 EnterLobby。空清单也写入空集合并发送 PackageReady。断线取消 worker、删除未完成 staging、清除 Session 状态；重连完整重走清单和 Ready。
+
+默认安装根为 `QStandardPaths::AppLocalDataLocation/packages`。版本目录是 `installed/<id>/<commit>`；`active.json` 是当前集合的唯一提交点，更新前保留 `active.previous.json`。失败或取消不会改动旧 active；已修改的本地 commit 目录会以 `LOCAL_PACKAGE_MODIFIED` 失败，不被覆盖。
+
+### 实际测试结果
+
+- M2 开发前基线：Debug、Release 原有 3/3 CTest 均通过。
+- Debug：配置、完整编译成功；新增后 4/4 CTest 通过（最终全量 12.83 秒）。
+- Release：独立配置、完整编译成功；新增后 4/4 CTest 通过（最终全量 12.80 秒）。
+- 本地资源包测试覆盖空清单、首装、缓存命中、缺包、commit 变化、无效 URL、目标 commit 不存在、Manifest 哈希失败、依赖缺失/版本不符/环、失败保留旧 active、错误 manifest_id、PackageReady、断线重同步及 Qt 事件循环响应。
+- 真实公开 CNB：从 `https://cnb.cool/sgs-project/sgs-test-mode.git` 下载提交 `9d38a4a970448ca17bfbf7c61f20ab77f6f12451`，原始 Manifest SHA-256 `d267e42891b2ac4729a21e90ac44a8f6aa1a285d4f14ef8ed68f351ec29b9941`；首次安装与第二次缓存复用均实际 PASS。
+- 真实 Linux M3 服务端联调：未执行。本任务没有提供独立 M3 测试服务器地址，且按限制未触碰既有 M2 服务；不得把本地 `QTcpServer` 或公开 Git 测试记为跨设备联调。
+- Release GUI：在真实 Windows 桌面启动并实际显示；UI Automation 与截图确认资源包同步面板、未连接状态和路径 `C:/Users/cy/AppData/Local/SgsClient/SGS Client/packages` 均可见，随后通过窗口关闭按钮正常关闭。未连接独立 M3 服务端，因此未把 GUI 内的远程 PackageReady 流程记为通过。
+
+### 安全与范围
+
+生产只接受无内嵌凭据的 HTTPS 仓库；禁用 Git 交互、系统/全局配置、Hook、file/ext 协议，不输出仓库 URL 或 Git stderr，未执行安装脚本或 submodule。Git 与校验全部在 QtConcurrent worker 中运行。M3-A 未实现 Lua、GameProcessManager、GameViewContext、动态 QML 宿主或热加载，也未修改 SgsServer/SgsArchitecture/CNB 仓库。
+
+最终 feature 分支提交、远程推送哈希与工作区状态以本阶段 Git 交付报告为准。
+
 ## M2-C：大厅与等待房间客户端
 
 完成日期：2026-10-25（Asia/Shanghai）

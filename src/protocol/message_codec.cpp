@@ -74,7 +74,8 @@ bool MessageCodec::validateIncomingFields(const QJsonObject &message, QString *e
     const QString type = message.value(QStringLiteral("type")).toString();
     const QJsonValue requestId = message.value(QStringLiteral("request_id"));
     const bool notification = type == QStringLiteral("RoomSnapshot")
-        || type == QStringLiteral("RoomListChanged");
+        || type == QStringLiteral("RoomListChanged")
+        || type == QStringLiteral("PackageManifestChanged");
     const qint64 minimum = notification ? 0 : 1;
     if (!isIntegerInRange(requestId, minimum, kMaximumRequestId)
         || (requestId.toInt() == 0 && !notification)) {

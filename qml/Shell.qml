@@ -71,6 +71,7 @@ ApplicationWindow {
                     Item { Layout.fillWidth: true }
                     Button { text: qsTr("取消连接"); visible: gameClient.canDisconnect; onClicked: lobbyModel.disconnectFromServer() }
                 }
+                PackageSyncPanel { }
                 Label { Layout.fillWidth: true; visible: lobbyModel.errorText.length > 0 || gameClient.lastError.length > 0; text: lobbyModel.errorText.length > 0 ? lobbyModel.errorText : gameClient.lastError; color: "#ff9a92"; wrapMode: Text.Wrap }
                 Frame {
                     Layout.fillWidth: true

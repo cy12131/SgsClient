@@ -279,6 +279,9 @@ void GameClient::flushWriteQueue()
             m_writeOffset = 0;
         }
     }
+    // 尽快把已进入 Qt 写缓冲区的完整 SGS/1 帧交给系统 Socket；这不会阻塞，
+    // 也避免测试服务器与低流量连接等待下一次事件循环写通知。
+    m_socket.flush();
 }
 
 void GameClient::sendHello()

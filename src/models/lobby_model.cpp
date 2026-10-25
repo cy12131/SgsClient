@@ -2,6 +2,7 @@
 
 #include "models/room_model.h"
 #include "network/game_client.h"
+#include "packages/package_sync_manager.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -49,20 +50,31 @@ QString friendlyError(const QString &code, const QString &fallback)
         {QStringLiteral("NOT_IN_ROOM"), QStringLiteral("当前不在房间中。")},
         {QStringLiteral("PERMISSION_DENIED"), QStringLiteral("当前身份不能执行此操作。")},
         {QStringLiteral("RESOURCE_LIMIT"), QStringLiteral("服务器房间数量已达到上限。")}};
+    if (code == QStringLiteral("PACKAGE_PROTOCOL_REQUIRED"))
+        return QStringLiteral("服务器要求先完成资源包同步，当前会话禁止进入大厅。");
     return messages.value(code, QStringLiteral("%1：%2").arg(code, fallback));
 }
 
 } // namespace
 
-LobbyModel::LobbyModel(GameClient &client, RoomModel &roomModel, QObject *parent)
+LobbyModel::LobbyModel(GameClient &client, PackageSyncManager &packageSync,
+                       RoomModel &roomModel, QObject *parent)
     : QObject(parent)
     , m_client(client)
+    , m_packageSync(packageSync)
     , m_roomModel(roomModel)
 {
     connect(&client, &GameClient::stateChanged, this, &LobbyModel::handleClientState);
     connect(&client, &GameClient::responseReceived, this, &LobbyModel::handleResponse);
     connect(&client, &GameClient::notificationReceived, this, &LobbyModel::handleNotification);
     connect(&client, &GameClient::requestFailed, this, &LobbyModel::handleRequestError);
+    connect(&packageSync, &PackageSyncManager::stateChanged, this, [this] {
+        if (m_packageSync.state() == PackageSyncManager::Ready && m_client.isReady()
+            && m_userId == 0 && m_enterRequestId < 0 && !m_pendingNickname.isEmpty()) {
+            enterLobby();
+        }
+        updatePhase();
+    });
     connect(&roomModel, &RoomModel::activeChanged, this, &LobbyModel::updatePhase);
     connect(&roomModel, &RoomModel::leftRoom, this, [this] {
         updatePhase();
@@ -76,6 +88,7 @@ QString LobbyModel::phaseText() const
     case Offline: return QStringLiteral("未连接");
     case Connecting: return QStringLiteral("连接中");
     case Handshaking: return QStringLiteral("握手中");
+    case SynchronizingPackages: return QStringLiteral("同步资源包");
     case CommunicationReady: return QStringLiteral("通信就绪");
     case EnteringLobby: return QStringLiteral("正在进入大厅");
     case Lobby: return QStringLiteral("大厅");
@@ -158,7 +171,8 @@ void LobbyModel::handleClientState()
 {
     if (m_client.state() == GameClient::Disconnected) {
         resetSession();
-    } else if (m_client.state() == GameClient::Ready && m_userId == 0
+    } else if (m_client.state() == GameClient::Ready
+               && m_packageSync.state() == PackageSyncManager::Ready && m_userId == 0
                && m_enterRequestId < 0 && !m_pendingNickname.isEmpty()) {
         enterLobby();
     }
@@ -310,6 +324,7 @@ void LobbyModel::updatePhase()
         if (m_roomModel.active()) next = InRoom;
         else if (m_userId > 0) next = Lobby;
         else if (m_enterRequestId > 0) next = EnteringLobby;
+        else if (m_packageSync.state() != PackageSyncManager::Ready) next = SynchronizingPackages;
         else next = CommunicationReady;
         break;
     }

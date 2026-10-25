@@ -1,6 +1,7 @@
 #include "models/lobby_model.h"
 #include "models/room_model.h"
 #include "network/game_client.h"
+#include "packages/package_sync_manager.h"
 #include "protocol/message_codec.h"
 
 #include <QCoreApplication>
@@ -11,6 +12,7 @@
 #include <QScopedPointer>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTemporaryDir>
 #include <QtEndian>
 #include <QtTest>
 
@@ -82,9 +84,11 @@ private:
 
 struct Fixture
 {
+    QTemporaryDir packages;
     GameClient client;
+    PackageSyncManager packageSync{client, packages.path()};
     RoomModel room{client};
-    LobbyModel lobby{client, room};
+    LobbyModel lobby{client, packageSync, room};
     QTcpServer server;
     QScopedPointer<QTcpSocket> peer;
     PeerReader reader;
@@ -118,6 +122,20 @@ struct Fixture
             QStringLiteral("HelloAck"), 1,
             {{QStringLiteral("server_name"), QStringLiteral("SgsServer")},
              {QStringLiteral("server_version"), QStringLiteral("0.2.0-m2")}})));
+        peer->flush();
+        const QJsonObject manifest = reader.next(peer.data(), &ok);
+        if (!ok || manifest.value(QStringLiteral("type")).toString() != QStringLiteral("GetPackageManifest")) {
+            return false;
+        }
+        peer->write(incomingFrame(message(QStringLiteral("PackageManifestResult"),
+            manifest.value(QStringLiteral("request_id")).toInt(),
+            {{QStringLiteral("manifest_id"), QStringLiteral("4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945")},
+             {QStringLiteral("packages"), QJsonArray{}}, {QStringLiteral("sync_timeout_ms"), 5000}})));
+        peer->flush();
+        const QJsonObject ready = reader.next(peer.data(), &ok);
+        if (!ok || ready.value(QStringLiteral("type")).toString() != QStringLiteral("PackageReady")) return false;
+        peer->write(incomingFrame(message(QStringLiteral("PackageReadyResult"),
+            ready.value(QStringLiteral("request_id")).toInt(), {{QStringLiteral("ready"), true}})));
         peer->flush();
         const QJsonObject enter = reader.next(peer.data(), &ok);
         if (!ok || enter.value(QStringLiteral("type")).toString() != QStringLiteral("EnterLobby")
@@ -390,10 +408,23 @@ void LobbyRoomTest::disconnectClearsSessionAndReconnects()
     fixture.send(message(QStringLiteral("HelloAck"), 1,
                          {{QStringLiteral("server_name"), QStringLiteral("SgsServer")},
                           {QStringLiteral("server_version"), QStringLiteral("0.2.0-m2")}}));
+    const QJsonObject manifest = fixture.reader.next(fixture.peer.data(), &ok);
+    QVERIFY(ok);
+    QCOMPARE(manifest.value(QStringLiteral("type")).toString(), QStringLiteral("GetPackageManifest"));
+    fixture.send(message(QStringLiteral("PackageManifestResult"),
+        manifest.value(QStringLiteral("request_id")).toInt(),
+        {{QStringLiteral("manifest_id"), QStringLiteral("4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945")},
+         {QStringLiteral("packages"), QJsonArray{}}, {QStringLiteral("sync_timeout_ms"), 5000}}));
+    const QJsonObject ready = fixture.reader.next(fixture.peer.data(), &ok);
+    QVERIFY(ok);
+    QCOMPARE(ready.value(QStringLiteral("type")).toString(), QStringLiteral("PackageReady"));
+    fixture.send(message(QStringLiteral("PackageReadyResult"),
+                         ready.value(QStringLiteral("request_id")).toInt(),
+                         {{QStringLiteral("ready"), true}}));
     const QJsonObject enter = fixture.reader.next(fixture.peer.data(), &ok);
     QVERIFY(ok);
     QCOMPARE(enter.value(QStringLiteral("type")).toString(), QStringLiteral("EnterLobby"));
-    QCOMPARE(enter.value(QStringLiteral("request_id")).toInt(), 2);
+    QCOMPARE(enter.value(QStringLiteral("request_id")).toInt(), 4);
 }
 
 QTEST_GUILESS_MAIN(LobbyRoomTest)
