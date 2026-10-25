@@ -142,7 +142,7 @@ qint64 GameClient::sendPing()
         setError(QStringLiteral("没有可用的请求编号。"));
         return -1;
     }
-    m_pending.insert(requestId, {PendingKind::Ping, {}});
+    m_pending.insert(requestId, {PendingKind::Ping, {}, {}});
     if (!enqueueMessage(makeMessage(QStringLiteral("Ping"), requestId, {}))) {
         m_pending.remove(requestId);
         return -1;
@@ -162,7 +162,7 @@ qint64 GameClient::sendEcho(const QString &text)
         setError(QStringLiteral("没有可用的请求编号。"));
         return -1;
     }
-    m_pending.insert(requestId, {PendingKind::Echo, text});
+    m_pending.insert(requestId, {PendingKind::Echo, text, {}});
     if (!enqueueMessage(makeMessage(QStringLiteral("Echo"), requestId,
                                     {{QStringLiteral("text"), text}}))) {
         m_pending.remove(requestId);
@@ -183,6 +183,27 @@ void GameClient::clearLog()
 void GameClient::setHandshakeTimeoutForTesting(const int milliseconds)
 {
     m_handshakeTimer.setInterval(qMax(1, milliseconds));
+}
+
+qint64 GameClient::sendRequest(const QString &type, const QString &expectedResponseType,
+                               const QJsonObject &data)
+{
+    if (!isReady() || type.isEmpty() || expectedResponseType.isEmpty()) {
+        setError(QStringLiteral("当前状态不能发送业务请求。"));
+        return -1;
+    }
+    const qint32 requestId = nextRequestId();
+    if (requestId < 0) {
+        setError(QStringLiteral("没有可用的请求编号。"));
+        return -1;
+    }
+    m_pending.insert(requestId, {PendingKind::Business, {}, expectedResponseType});
+    if (!enqueueMessage(makeMessage(type, requestId, data))) {
+        m_pending.remove(requestId);
+        return -1;
+    }
+    appendLog(QStringLiteral("已发送 %1 #%2。").arg(type).arg(requestId));
+    return requestId;
 }
 
 void GameClient::setState(const State state)
@@ -270,7 +291,7 @@ void GameClient::sendHello()
     const QJsonObject data{{QStringLiteral("client_name"), QStringLiteral("SgsClient")},
                            {QStringLiteral("client_version"),
                             QCoreApplication::applicationVersion()}};
-    m_pending.insert(requestId, {PendingKind::Hello, {}});
+    m_pending.insert(requestId, {PendingKind::Hello, {}, {}});
     if (!enqueueMessage(makeMessage(QStringLiteral("Hello"), requestId, data))) {
         m_pending.remove(requestId);
         return;
@@ -284,6 +305,11 @@ void GameClient::handleMessage(const QJsonObject &message)
     const QString type = message.value(QStringLiteral("type")).toString();
     const qint32 requestId = message.value(QStringLiteral("request_id")).toInt();
     const QJsonObject data = message.value(QStringLiteral("data")).toObject();
+    if (requestId == 0) {
+        appendLog(QStringLiteral("收到通知 %1。").arg(type));
+        emit notificationReceived(type, data);
+        return;
+    }
     if (type == QStringLiteral("Error")) {
         handleErrorMessage(requestId, data);
         return;
@@ -331,6 +357,12 @@ void GameClient::handleMessage(const QJsonObject &message)
         emit echoReceived(requestId, text);
         return;
     }
+    if (pending->kind == PendingKind::Business && type == pending->expectedResponseType) {
+        m_pending.erase(pending);
+        appendLog(QStringLiteral("收到 %1 #%2。").arg(type).arg(requestId));
+        emit responseReceived(type, requestId, data);
+        return;
+    }
     appendLog(QStringLiteral("忽略类型不匹配的响应 %1 #%2。").arg(type).arg(requestId));
 }
 
@@ -345,6 +377,7 @@ void GameClient::handleErrorMessage(const qint32 requestId, const QJsonObject &d
     const QString message = data.value(QStringLiteral("message")).toString();
     m_pending.remove(requestId);
     setError(QStringLiteral("服务器错误 %1 (#%2)：%3").arg(code).arg(requestId).arg(message));
+    emit requestFailed(requestId, code, message);
     if (code == QStringLiteral("UNSUPPORTED_PROTOCOL")) {
         m_socket.abort();
     }

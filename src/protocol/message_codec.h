@@ -27,6 +27,10 @@ public:
     [[nodiscard]] static QByteArray encode(const QJsonObject &message, QString *error = nullptr);
     [[nodiscard]] static bool validateCommonFields(const QJsonObject &message,
                                                    QString *error = nullptr);
+    // 接收端除普通响应外，还允许 M2 的两种服务端通知使用 request_id=0。
+    // 发送端仍通过 validateCommonFields/encode 强制使用正整数请求编号。
+    [[nodiscard]] static bool validateIncomingFields(const QJsonObject &message,
+                                                     QString *error = nullptr);
     [[nodiscard]] DecodeResult append(const QByteArray &bytes);
     void reset();
 

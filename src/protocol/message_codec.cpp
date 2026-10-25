@@ -55,6 +55,41 @@ bool MessageCodec::validateCommonFields(const QJsonObject &message, QString *err
     return true;
 }
 
+bool MessageCodec::validateIncomingFields(const QJsonObject &message, QString *error)
+{
+    if (!isIntegerInRange(message.value(QStringLiteral("protocol")), 1, kMaximumRequestId)
+        || message.value(QStringLiteral("protocol")).toInt() != kProtocolVersion) {
+        setError(error, QStringLiteral("protocol 必须是受支持的整数版本。"));
+        return false;
+    }
+    if (!message.value(QStringLiteral("type")).isString()) {
+        setError(error, QStringLiteral("type 必须是字符串。"));
+        return false;
+    }
+    if (!message.value(QStringLiteral("data")).isObject()) {
+        setError(error, QStringLiteral("data 必须是 JSON 对象。"));
+        return false;
+    }
+
+    const QString type = message.value(QStringLiteral("type")).toString();
+    const QJsonValue requestId = message.value(QStringLiteral("request_id"));
+    const bool notification = type == QStringLiteral("RoomSnapshot")
+        || type == QStringLiteral("RoomListChanged");
+    const qint64 minimum = notification ? 0 : 1;
+    if (!isIntegerInRange(requestId, minimum, kMaximumRequestId)
+        || (requestId.toInt() == 0 && !notification)) {
+        setError(error, notification
+                            ? QStringLiteral("通知 request_id 必须是 0～2147483647 的整数。")
+                            : QStringLiteral("request_id 必须是 1～2147483647 的整数。"));
+        return false;
+    }
+    if (notification && requestId.toInt() != 0) {
+        setError(error, QStringLiteral("服务端通知 request_id 必须为 0。"));
+        return false;
+    }
+    return true;
+}
+
 QByteArray MessageCodec::encode(const QJsonObject &message, QString *error)
 {
     QString validationError;
@@ -112,7 +147,7 @@ DecodeResult MessageCodec::append(const QByteArray &bytes)
         }
         const QJsonObject message = document.object();
         QString validationError;
-        if (!validateCommonFields(message, &validationError)) {
+        if (!validateIncomingFields(message, &validationError)) {
             result.error = QStringLiteral("消息公共字段无效：%1").arg(validationError);
             m_buffer.clear();
             return result;

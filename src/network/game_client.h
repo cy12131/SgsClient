@@ -3,6 +3,7 @@
 #include "protocol/message_codec.h"
 
 #include <QHash>
+#include <QJsonObject>
 #include <QObject>
 #include <QQueue>
 #include <QStringList>
@@ -42,6 +43,9 @@ public:
     Q_INVOKABLE void clearLog();
 
     void setHandshakeTimeoutForTesting(int milliseconds);
+    [[nodiscard]] qint64 sendRequest(const QString &type,
+                                     const QString &expectedResponseType,
+                                     const QJsonObject &data = {});
 
 signals:
     void stateChanged();
@@ -49,12 +53,16 @@ signals:
     void logTextChanged();
     void pongReceived(qint64 requestId);
     void echoReceived(qint64 requestId, const QString &text);
+    void responseReceived(const QString &type, qint64 requestId, const QJsonObject &data);
+    void notificationReceived(const QString &type, const QJsonObject &data);
+    void requestFailed(qint64 requestId, const QString &code, const QString &message);
 
 private:
-    enum class PendingKind { Hello, Ping, Echo };
+    enum class PendingKind { Hello, Ping, Echo, Business };
     struct PendingRequest {
         PendingKind kind;
         QString echoText;
+        QString expectedResponseType;
     };
 
     void setState(State state);

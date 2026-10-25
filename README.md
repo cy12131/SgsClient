@@ -1,6 +1,6 @@
 # SgsClient
 
-SgsClient 是自主开发的多人在线回合制卡牌游戏 Windows 客户端。M1-C 提供遵循 SGS/1 的 Qt TCP 调试客户端；项目不依赖 FreeKill 运行。
+SgsClient 是自主开发的多人在线回合制卡牌游戏 Windows 客户端。M2-C 在 SGS/1 TCP 基础上提供临时用户大厅与等待房间；项目不依赖 FreeKill 运行。
 
 ## 技术栈
 
@@ -48,7 +48,7 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-测试包括离屏 QML 冒烟测试，以及使用本机 `QTcpServer` 替身的协议/连接测试。本地 Socket 测试不等同于 Linux 服务端跨设备联调。自动化测试不能替代可见窗口检查。
+测试包括离屏 QML 冒烟测试，以及使用本机 `QTcpServer` 替身的协议、连接、大厅与房间状态测试。本地 Socket 测试不等同于 Linux 服务端跨设备联调。自动化测试不能替代可见窗口检查。
 
 ## 当前功能
 
@@ -56,11 +56,13 @@ ctest --test-dir build --output-on-failure
 - SGS/1 大端长度帧、严格 UTF-8/JSON 编解码与增量收包
 - 异步 TCP 连接、Hello/HelloAck、Ping/Pong、Echo/EchoResult 和 Error 展示
 - `Disconnected / Connecting / Handshaking / Ready` 状态与 10 秒握手超时
-- 地址、端口、连接、断开、Ping、中文 Echo 和有限日志调试界面
-- CTest/Qt Test 冒烟及本地模拟服务器测试
+- 临时昵称进入大厅、房间列表刷新、创建与加入房间
+- 服务端权威的固定座位、房主与准备状态，以及离开房间
+- `RoomListChanged` 自动刷新、`RoomSnapshot` revision 去重和断线清理
+- 连接页、大厅页、等待房间页，以及 CTest/Qt Test 本地模拟服务器测试
 
 ## 尚未实现
 
-真实 Linux 服务端跨设备联调、TLS、认证、登录、大厅、房间、牌桌、卡牌、武将、技能、Lua、资源同步、自动重连和正式 UI 均未实现。
+M2 真实 Linux 服务端跨设备联调、持久账号认证、匹配、开局、牌桌、卡牌、武将、技能、Lua、资源同步、自动重连和正式美术资源包均未实现。
 
 协议见 [docs/protocol.md](docs/protocol.md)，设计边界见 [docs/architecture.md](docs/architecture.md)，实测状态见 [docs/milestone_status.md](docs/milestone_status.md)。

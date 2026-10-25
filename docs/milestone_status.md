@@ -1,5 +1,75 @@
 # SgsClient 里程碑状态
 
+## M2-C：大厅与等待房间客户端
+
+完成日期：2026-10-25（Asia/Shanghai）
+
+### 1. 项目与 Git
+
+- 绝对路径：`D:\Game\NewKill`
+- 开发分支：`feature/m2-lobby-room-client`
+- 基线：`7be707e merge: complete SGS client M1`
+- 本阶段只在功能分支开发；不合并 `main`，不推送远程。
+
+### 2. 实现内容与文件
+
+- `src/models/lobby_model.h/.cpp`：临时身份、应用业务阶段、房间列表、创建/加入和列表刷新。
+- `src/models/room_model.h/.cpp`：完整房间快照、revision、固定座位、房主/准备、退出及清理。
+- `src/network/game_client.*`：在 M1 单连接基础上增加通用业务请求、Result/Error 匹配和通知分发。
+- `src/protocol/message_codec.*`：接收端允许 `RoomSnapshot`/`RoomListChanged` 使用 request_id 0；发送端仍禁止 0。
+- `qml/Shell.qml`、`qml/Lobby.qml`、`qml/WaitingRoom.qml`：连接页、大厅页和 2～8 人等待房间。
+- `tests/lobby_room_test.cpp`：M2 协议和模型的本地 `QTcpServer` 自动化测试。
+- 更新 CMake、README、架构、协议和冒烟测试。
+
+### 3. 对象关系与生命周期
+
+`Application` 依次拥有 `GameClient`、`RoomModel`、`LobbyModel`、`QQmlApplicationEngine`。QML 引擎最后构造、最先析构，随后大厅模型、房间模型和网络对象逆序销毁，避免 QML 或模型引用已经析构的底层对象。全程复用 M1 的单一 `QTcpSocket` 与逐 Socket `NoProxy`，没有创建大厅专用连接。
+
+`GameClient` 只负责传输、握手、请求编号/匹配和通知分流；`LobbyModel`/`RoomModel` 负责业务状态投影；QML 只负责表现和提交用户操作，不伪造服务端权威状态。
+
+### 4. 业务执行链
+
+- EnterLobby：用户提交地址、端口、昵称 → TCP/Hello 成功 → `LobbyModel` 发送 EnterLobby → 校验 EnterLobbyResult → 保存正整数 user_id/服务端昵称 → 请求 ListRooms → 进入 Lobby。
+- CreateRoom/JoinRoom：发送请求 → 校验匹配 Result 和 room_id → 等待随后 `RoomSnapshot` → 由快照激活 `RoomModel` 并进入 InRoom；Result 与快照同次 `readyRead` 也可处理。
+- SetReady：发送意图 → 收到 SetReadyResult 只结束请求 → 等待 revision 更新的 RoomSnapshot 才改变显示，不做乐观更新。
+- LeaveRoom：LeaveRoomResult 后清空房间并返回大厅，再请求最新列表。
+
+### 5. 通知、revision 与座位
+
+`RoomSnapshot` 和 `RoomListChanged` 只有 request_id 0 才作为通知接收。快照校验房间编号、名称、容量、waiting 状态、房主、玩家唯一性、座位范围及当前用户存在；同房间只接受严格更大的 revision。QML 按服务端 1～max_players 的 seat 映射固定槽位，空缺不会重排。
+
+`RoomListChanged` 不携带列表，收到后产生新的 ListRooms 请求；模型记录最新列表请求 ID，旧响应不能覆盖新列表。
+
+断线会清除 user_id、昵称、房间列表、当前房间、待处理请求和协议缓冲并返回连接页。重新连接必须重新 Hello 和 EnterLobby，不恢复旧会话。
+
+### 6. 构建与自动化测试（已实际测试）
+
+| 构建类型 | 配置/编译 | CTest |
+| --- | --- | --- |
+| Debug | Qt 6.11.2 + MinGW 13.1，成功 | 3/3 通过，0 失败，最终复核 6.56 秒 |
+| Release | Qt 6.11.2 + MinGW 13.1，成功 | 3/3 通过，0 失败，最终复核 6.08 秒 |
+
+CTest 包含 QML 冒烟、M1 网络回归和 M2 大厅/房间测试。M2 测试实际覆盖 EnterLobby/ListRooms、创建与加入、Result+Snapshot 粘连、通知 ID 规则、列表刷新、成员增减、座位空缺、准备/取消准备、房主变更、相同/旧 revision、业务错误、退出、断线清理和重连。测试使用本机回环 `QTcpServer`，不是跨设备联调。
+
+### 7. Release GUI 与真实网络（已实际测试）
+
+Release GUI 在正常 Windows 桌面平台实际显示，连接页标题、版本、服务器/端口/中文昵称字段、状态和日志控件均正常，最后正常关闭。
+
+Windows `10.0.233.61` 经“以太网 3”访问 `10.0.172.236:18765`，`Test-NetConnection` 成功。Release GUI 实际完成 TCP 连接、Hello #1 和 HelloAck，服务端自报 `SgsServer 0.1.0-dev`；随后 EnterLobby #2 收到 `UNKNOWN_MESSAGE_TYPE: Unsupported message type`。客户端没有错误进入大厅，清晰显示原始错误码，主动断开后回到未连接并正常关闭。
+
+上述结果证明真实跨设备的 M1 传输/握手和 M2 失败保持机制工作，但目标地址仍运行不支持大厅消息的 M1 服务，因此不能记为真实 M2-S 大厅/房间联调通过。需在 Linux 侧切换至参考提交 `a95f424b82146c059d4d1d8ee7a3304a70d9c5f4` 后补验真实大厅、创建/加入、通知、准备和退出流程。
+
+### 8. 素材与界面
+
+开发时检查了用户提供的 FreeKill 0.5.25 中大厅/等待房间 QML、`image/background.jpg`、`image/button/tileicon/create_room.png` 及 GPLv3 许可。为避免把未单独核实授权边界的媒体提交到公开仓库，本阶段未复制其 QML 或图片；实际界面全部使用自制布局、颜色、形状、文字和 Unicode 图标。未引入武将、皮肤、语音、动画或资源同步系统。
+
+### 9. 已知问题与待联调事项
+
+- 真实 Linux 地址当前运行 M1 服务，M2 跨设备大厅/房间验收待服务端切换后进行。
+- M2 没有开局、持久账号、聊天、会话恢复或自动重连，符合范围。
+- 旧的 `qml/Main.qml` 仍作为未加载的 M1 界面源文件保留；当前根组件为 `Shell.qml`，运行时不会实例化旧页面。
+- Qt 的可选 Vulkan headers 提示不影响本项目构建和运行。
+
 ## M1-C：Qt TCP 客户端与 SGS/1
 
 完成日期：2026-10-24（Asia/Shanghai）

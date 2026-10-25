@@ -12,6 +12,8 @@
 
 Application::Application(QGuiApplication &qtApplication)
     : m_qtApplication(qtApplication)
+    , m_roomModel(m_gameClient)
+    , m_lobbyModel(m_gameClient, m_roomModel)
 {
 }
 
@@ -31,7 +33,9 @@ bool Application::initialize()
         Qt::QueuedConnection);
 
     m_engine.rootContext()->setContextProperty(QStringLiteral("gameClient"), &m_gameClient);
-    m_engine.loadFromModule(QStringLiteral("SgsClient"), QStringLiteral("Main"));
+    m_engine.rootContext()->setContextProperty(QStringLiteral("lobbyModel"), &m_lobbyModel);
+    m_engine.rootContext()->setContextProperty(QStringLiteral("roomModel"), &m_roomModel);
+    m_engine.loadFromModule(QStringLiteral("SgsClient"), QStringLiteral("Shell"));
     if (m_engine.rootObjects().isEmpty()) {
         qCritical() << "无法加载主 QML 界面。";
         return false;

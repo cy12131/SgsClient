@@ -12,6 +12,10 @@ qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)
 
 qt_add_library(sgs-client-core STATIC
+    src/models/lobby_model.cpp
+    src/models/lobby_model.h
+    src/models/room_model.cpp
+    src/models/room_model.h
     src/network/game_client.cpp
     src/network/game_client.h
     src/protocol/message_codec.cpp
@@ -32,6 +36,9 @@ qt_add_qml_module(sgs-client
     VERSION 1.0
     QML_FILES
         qml/Main.qml
+        qml/Shell.qml
+        qml/Lobby.qml
+        qml/WaitingRoom.qml
 )
 
 target_link_libraries(sgs-client PRIVATE
@@ -88,6 +95,17 @@ if(BUILD_TESTING)
     endif()
     add_test(NAME sgs-client-network COMMAND sgs-client-network-test)
     set_tests_properties(sgs-client-network PROPERTIES TIMEOUT 30)
+
+    qt_add_executable(sgs-client-lobby-room-test tests/lobby_room_test.cpp)
+    target_link_libraries(sgs-client-lobby-room-test PRIVATE
+        sgs-client-core Qt6::Network Qt6::Test)
+    if(MSVC)
+        target_compile_options(sgs-client-lobby-room-test PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(sgs-client-lobby-room-test PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+    add_test(NAME sgs-client-lobby-room COMMAND sgs-client-lobby-room-test)
+    set_tests_properties(sgs-client-lobby-room PROPERTIES TIMEOUT 40)
 endif()
 
 include(GNUInstallDirs)
