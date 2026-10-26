@@ -79,6 +79,12 @@ bool writeFile(const QString &path, const QByteArray &data)
     return file.open(QIODevice::WriteOnly | QIODevice::Truncate) && file.write(data) == data.size();
 }
 
+QByteArray readFile(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+}
+
 bool runGit(const QString &directory, const QStringList &args, QByteArray *output = nullptr)
 {
     QProcess process;
@@ -156,6 +162,8 @@ private slots:
     void jcsAndManifestIdVectors();
     void strictManifestAndDependencyValidation();
     void firstInstallCacheCommitChangeAndRollback();
+    void atomicIndexFailuresPreserveRecoveryFiles();
+    void invalidActiveIndexIsNotPromotedToPrevious();
     void invalidRepositoryCommitAndManifestFailSafely();
     void emptyManifestProtocolGateAndReconnect();
     void wrongManifestIdFailsGate();
@@ -245,6 +253,7 @@ void PackageSyncTest::firstInstallCacheCommitChangeAndRollback()
     QVERIFY2(first.success, qPrintable(first.error)); QCOMPARE(first.installed, QStringList{repo.spec().id});
     const QString firstPath = QDir(root.path()).filePath(QStringLiteral("installed/%1/%2").arg(repo.spec().id, repo.commit));
     QVERIFY(QFileInfo::exists(firstPath));
+    QVERIFY(!QFileInfo::exists(root.filePath(QStringLiteral("active.previous.json"))));
     QFile firstActive(root.filePath(QStringLiteral("active.json")));
     QVERIFY(firstActive.open(QIODevice::ReadOnly));
     const QByteArray firstActiveBytes = firstActive.readAll();
@@ -265,6 +274,7 @@ void PackageSyncTest::firstInstallCacheCommitChangeAndRollback()
     auto upgraded = installer.synchronize(setFor({repo.spec(second)}), cancelled);
     QVERIFY2(upgraded.success, qPrintable(upgraded.error));
     QVERIFY(QFileInfo::exists(firstPath));
+    QCOMPARE(readFile(root.filePath(QStringLiteral("active.previous.json"))), firstActiveBytes);
     QFile activeSnapshot(root.filePath(QStringLiteral("active.json")));
     QVERIFY(activeSnapshot.open(QIODevice::ReadOnly));
     const QByteArray activeBefore = activeSnapshot.readAll();
@@ -274,6 +284,79 @@ void PackageSyncTest::firstInstallCacheCommitChangeAndRollback()
     QVERIFY(!protectedResult.success); QCOMPARE(protectedResult.errorCode, QStringLiteral("LOCAL_PACKAGE_MODIFIED"));
     QFile active(root.filePath(QStringLiteral("active.json"))); QVERIFY(active.open(QIODevice::ReadOnly));
     QCOMPARE(active.readAll(), activeBefore);
+}
+
+void PackageSyncTest::atomicIndexFailuresPreserveRecoveryFiles()
+{
+    RepoFixture repo; QVERIFY(repo.create());
+    QTemporaryDir root; QVERIFY(root.isValid());
+    auto cancelled = std::make_shared<std::atomic_bool>(false);
+    PackageInstaller installer({root.path(), true});
+    const auto first = installer.synchronize(setFor({repo.spec()}), cancelled);
+    QVERIFY2(first.success, qPrintable(first.error));
+    const QString secondCommit = repo.secondCommit(); QVERIFY(!secondCommit.isEmpty());
+    const auto second = installer.synchronize(setFor({repo.spec(secondCommit)}), cancelled);
+    QVERIFY2(second.success, qPrintable(second.error));
+
+    const QString activePath = root.filePath(QStringLiteral("active.json"));
+    const QString previousPath = root.filePath(QStringLiteral("active.previous.json"));
+    const QByteArray activeBefore = readFile(activePath);
+    const QByteArray previousBefore = readFile(previousPath);
+    QVERIFY(!activeBefore.isEmpty());
+    QVERIFY(!previousBefore.isEmpty());
+    QVERIFY(activeBefore != previousBefore);
+
+    InstallerOptions previousFailureOptions{root.path(), true};
+    previousFailureOptions.indexCommitGuard = [](const ActiveIndexCommit point) {
+        return point != ActiveIndexCommit::Previous;
+    };
+    const auto previousFailure = PackageInstaller(previousFailureOptions)
+        .synchronize(setFor({repo.spec(secondCommit)}), cancelled);
+    QCOMPARE(previousFailure.errorCode, QStringLiteral("PACKAGE_PUBLISH_FAILED"));
+    QCOMPARE(readFile(activePath), activeBefore);
+    QCOMPARE(readFile(previousPath), previousBefore);
+
+    InstallerOptions activeFailureOptions{root.path(), true};
+    activeFailureOptions.indexCommitGuard = [](const ActiveIndexCommit point) {
+        return point != ActiveIndexCommit::Active;
+    };
+    const auto activeFailure = PackageInstaller(activeFailureOptions)
+        .synchronize(setFor({repo.spec(secondCommit)}), cancelled);
+    QCOMPARE(activeFailure.errorCode, QStringLiteral("PACKAGE_PUBLISH_FAILED"));
+    QCOMPARE(readFile(activePath), activeBefore);
+    QCOMPARE(readFile(previousPath), activeBefore);
+
+    const auto recovered = installer.synchronize(setFor({repo.spec(secondCommit)}), cancelled);
+    QVERIFY2(recovered.success, qPrintable(recovered.error));
+    QCOMPARE(readFile(activePath), activeBefore);
+}
+
+void PackageSyncTest::invalidActiveIndexIsNotPromotedToPrevious()
+{
+    RepoFixture repo; QVERIFY(repo.create());
+    QTemporaryDir root; QVERIFY(root.isValid());
+    auto cancelled = std::make_shared<std::atomic_bool>(false);
+    PackageInstaller installer({root.path(), true});
+    QVERIFY(installer.synchronize(setFor({repo.spec()}), cancelled).success);
+    QVERIFY(installer.synchronize(setFor({repo.spec()}), cancelled).success);
+
+    const QString activePath = root.filePath(QStringLiteral("active.json"));
+    const QString previousPath = root.filePath(QStringLiteral("active.previous.json"));
+    const QByteArray previousBefore = readFile(previousPath);
+    const QString missingCommit(40, QLatin1Char('f'));
+    const QJsonObject invalid{{QStringLiteral("manifest_id"), calculateManifestId({repo.spec()})},
+        {QStringLiteral("packages"), QJsonArray{QJsonObject{
+            {QStringLiteral("id"), repo.spec().id},
+            {QStringLiteral("commit"), missingCommit},
+            {QStringLiteral("path"), QStringLiteral("installed/%1/%2").arg(repo.spec().id, missingCommit)}}}}};
+    const QByteArray invalidBytes = QJsonDocument(invalid).toJson(QJsonDocument::Indented);
+    QVERIFY(writeFile(activePath, invalidBytes));
+
+    const auto result = installer.synchronize(setFor({repo.spec()}), cancelled);
+    QCOMPARE(result.errorCode, QStringLiteral("PACKAGE_PUBLISH_FAILED"));
+    QVERIFY(result.error.contains(QStringLiteral("不存在")));
+    QCOMPARE(readFile(activePath), invalidBytes);
+    QCOMPARE(readFile(previousPath), previousBefore);
 }
 
 void PackageSyncTest::invalidRepositoryCommitAndManifestFailSafely()
