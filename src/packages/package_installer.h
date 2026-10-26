@@ -5,6 +5,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <utility>
 
 namespace Sgs::Packages {
 
@@ -23,9 +24,17 @@ struct InstallResult {
     QStringList reused;
 };
 
+enum class ActiveIndexCommit { Previous, Active };
+
 struct InstallerOptions {
+    InstallerOptions() = default;
+    InstallerOptions(QString path, const bool allowFile)
+        : rootPath(std::move(path)), allowFileRepositories(allowFile) {}
+
     QString rootPath;
     bool allowFileRepositories = false; // 仅供本地自动化测试夹具使用。
+    // 生产环境保持为空；定向测试可在 QSaveFile::commit 前注入失败。
+    std::function<bool(ActiveIndexCommit)> indexCommitGuard;
 };
 
 class PackageInstaller final

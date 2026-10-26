@@ -22,6 +22,8 @@ namespace Sgs::Packages {
 namespace {
 
 constexpr qint64 kMaximumManifestBytes = 1024 * 1024;
+const QRegularExpression kPackageId(QStringLiteral("^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9_-]*)+$"));
+const QRegularExpression kCommit(QStringLiteral("^(?:[0-9a-f]{40}|[0-9a-f]{64})$"));
 
 struct CommandResult { bool ok = false; bool cancelled = false; QByteArray output; };
 
@@ -184,25 +186,138 @@ bool validateManifest(const QString &root, const PackageSpec &spec,
     return true;
 }
 
-bool writeActive(const QString &root, const PackageSet &set, QString *error)
+bool readAndValidateActive(const QString &root, const QString &activePath,
+                           const QString &emptyHooks, QDeadlineTimer &deadline,
+                           const std::shared_ptr<std::atomic_bool> &cancelled,
+                           const bool allowFileRepositories, QByteArray *bytes, QString *error)
+{
+    QFile file(activePath);
+    if (!file.open(QIODevice::ReadOnly) || file.size() <= 0
+        || file.size() > kMaximumManifestBytes) {
+        *error = QStringLiteral("现有 active.json 无法读取或大小无效。");
+        return false;
+    }
+    *bytes = file.readAll();
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(*bytes, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        *error = QStringLiteral("现有 active.json 不是有效 JSON 对象。");
+        return false;
+    }
+    const QJsonObject object = document.object();
+    if (object.size() != 2 || !object.value(QStringLiteral("manifest_id")).isString()
+        || !QRegularExpression(QStringLiteral("^[0-9a-f]{64}$"))
+                .match(object.value(QStringLiteral("manifest_id")).toString()).hasMatch()
+        || !object.value(QStringLiteral("packages")).isArray()) {
+        *error = QStringLiteral("现有 active.json 字段无效。");
+        return false;
+    }
+
+    QSet<QString> ids;
+    for (const auto &value : object.value(QStringLiteral("packages")).toArray()) {
+        if (!value.isObject()) {
+            *error = QStringLiteral("现有 active.json 包条目无效。");
+            return false;
+        }
+        const QJsonObject package = value.toObject();
+        const QString id = package.value(QStringLiteral("id")).toString();
+        const QString commit = package.value(QStringLiteral("commit")).toString();
+        const QString path = package.value(QStringLiteral("path")).toString();
+        const QString expectedPath = QStringLiteral("installed/%1/%2").arg(id, commit);
+        if (package.size() != 3 || !package.value(QStringLiteral("id")).isString()
+            || !package.value(QStringLiteral("commit")).isString()
+            || !package.value(QStringLiteral("path")).isString()
+            || !kPackageId.match(id).hasMatch() || !kCommit.match(commit).hasMatch()
+            || ids.contains(id) || path != expectedPath) {
+            *error = QStringLiteral("现有 active.json 包身份或规范路径无效。");
+            return false;
+        }
+        ids.insert(id);
+
+        const QString packageRoot = QDir(root).filePath(path);
+        const QFileInfo packageInfo(packageRoot);
+        const QString canonicalInstalled = QDir::fromNativeSeparators(
+            QFileInfo(QDir(root).filePath(QStringLiteral("installed"))).canonicalFilePath()) + '/';
+        const QString canonicalPackage = QDir::fromNativeSeparators(packageInfo.canonicalFilePath());
+        if (!packageInfo.isDir() || canonicalInstalled == QStringLiteral("/")
+            || !canonicalPackage.startsWith(canonicalInstalled, Qt::CaseInsensitive)) {
+            *error = QStringLiteral("现有 active.json 引用了不存在或越界的资源包：%1").arg(id);
+            return false;
+        }
+        const auto head = git(packageRoot, {QStringLiteral("rev-parse"), QStringLiteral("HEAD")},
+                              emptyHooks, deadline, cancelled, allowFileRepositories);
+        const auto clean = git(packageRoot, {QStringLiteral("status"), QStringLiteral("--porcelain"),
+                                             QStringLiteral("--untracked-files=all")},
+                               emptyHooks, deadline, cancelled, allowFileRepositories);
+        QFile manifest(QDir(packageRoot).filePath(QStringLiteral("manifest.json")));
+        QJsonParseError manifestError;
+        QByteArray manifestBytes;
+        if (manifest.open(QIODevice::ReadOnly)) manifestBytes = manifest.readAll();
+        const QJsonDocument manifestDocument = QJsonDocument::fromJson(manifestBytes, &manifestError);
+        if (!head.ok || QString::fromLatin1(head.output) != commit || !clean.ok
+            || !clean.output.isEmpty() || manifestBytes.isEmpty() || !manifestDocument.isObject()
+            || manifestError.error != QJsonParseError::NoError) {
+            *error = QStringLiteral("现有 active.json 引用的资源包未通过 checkout 校验：%1").arg(id);
+            return false;
+        }
+        const QJsonObject manifestObject = manifestDocument.object();
+        if (manifestObject.value(QStringLiteral("id")).toString() != id) {
+            *error = QStringLiteral("现有 active.json 引用的资源包身份不匹配：%1").arg(id);
+            return false;
+        }
+    }
+    return true;
+}
+
+bool atomicWrite(const QString &path, const QByteArray &bytes, const ActiveIndexCommit point,
+                 const InstallerOptions &options, QString *error)
+{
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        *error = point == ActiveIndexCommit::Previous
+            ? QStringLiteral("无法写入上一版资源包激活索引。")
+            : QStringLiteral("无法写入资源包激活索引。");
+        return false;
+    }
+    if (options.indexCommitGuard && !options.indexCommitGuard(point)) {
+        file.cancelWriting();
+        *error = point == ActiveIndexCommit::Previous
+            ? QStringLiteral("无法原子保存上一版资源包激活索引。")
+            : QStringLiteral("无法原子发布资源包激活索引。");
+        return false;
+    }
+    if (!file.commit()) {
+        *error = point == ActiveIndexCommit::Previous
+            ? QStringLiteral("无法原子保存上一版资源包激活索引。")
+            : QStringLiteral("无法原子发布资源包激活索引。");
+        return false;
+    }
+    return true;
+}
+
+bool writeActive(const QString &root, const PackageSet &set, const InstallerOptions &options,
+                 QDeadlineTimer &deadline,
+                 const std::shared_ptr<std::atomic_bool> &cancelled, QString *error)
 {
     QJsonArray packages;
     for (const auto &spec : set.packages)
         packages.append(QJsonObject{{QStringLiteral("id"), spec.id}, {QStringLiteral("commit"), spec.commit},
                                     {QStringLiteral("path"), QStringLiteral("installed/%1/%2").arg(spec.id, spec.commit)}});
-    const QString activePath = QDir(root).filePath(QStringLiteral("active.json"));
+    const QDir rootDirectory(root);
+    const QString activePath = rootDirectory.filePath(QStringLiteral("active.json"));
     if (QFile::exists(activePath)) {
-        QFile::remove(QDir(root).filePath(QStringLiteral("active.previous.json")));
-        if (!QFile::copy(activePath, QDir(root).filePath(QStringLiteral("active.previous.json")))) {
-            *error = QStringLiteral("无法保存上一版资源包激活索引。"); return false;
-        }
+        QByteArray previousBytes;
+        if (!readAndValidateActive(root, activePath,
+                rootDirectory.filePath(QStringLiteral(".empty-hooks")), deadline, cancelled,
+                options.allowFileRepositories, &previousBytes, error)
+            || !atomicWrite(rootDirectory.filePath(QStringLiteral("active.previous.json")),
+                            previousBytes, ActiveIndexCommit::Previous, options, error)) return false;
     }
-    QSaveFile file(activePath);
-    if (!file.open(QIODevice::WriteOnly)) { *error = QStringLiteral("无法写入资源包激活索引。"); return false; }
-    file.write(QJsonDocument(QJsonObject{{QStringLiteral("manifest_id"), set.manifestId},
-                                         {QStringLiteral("packages"), packages}}).toJson(QJsonDocument::Indented));
-    if (!file.commit()) { *error = QStringLiteral("无法原子发布资源包激活索引。"); return false; }
-    return true;
+    const QByteArray activeBytes = QJsonDocument(QJsonObject{
+        {QStringLiteral("manifest_id"), set.manifestId},
+        {QStringLiteral("packages"), packages}}).toJson(QJsonDocument::Indented);
+    return atomicWrite(activePath, activeBytes, ActiveIndexCommit::Active, options, error);
 }
 
 } // namespace
@@ -286,7 +401,8 @@ InstallResult PackageInstaller::synchronize(const PackageSet &set,
         result.installed.append(spec.id);
     }
     QString publishError;
-    if (!writeActive(root.absolutePath(), set, &publishError)) {
+    if (!writeActive(root.absolutePath(), set, m_options, deadline, cancelled, &publishError)) {
+        if (cancelled->load()) { result.cancelled = true; return result; }
         result.errorCode = QStringLiteral("PACKAGE_PUBLISH_FAILED"); result.error = publishError; return result;
     }
     result.success = true;
