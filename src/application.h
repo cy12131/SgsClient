@@ -3,6 +3,7 @@
 #include "network/game_client.h"
 #include "models/lobby_model.h"
 #include "models/room_model.h"
+#include "packages/package_sync_manager.h"
 
 #include <QQmlApplicationEngine>
 
@@ -22,6 +23,7 @@ public:
 private:
     QGuiApplication &m_qtApplication;
     GameClient m_gameClient;
+    PackageSyncManager m_packageSyncManager;
     RoomModel m_roomModel;
     LobbyModel m_lobbyModel;
     QQmlApplicationEngine m_engine;

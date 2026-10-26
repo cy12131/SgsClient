@@ -12,8 +12,9 @@
 
 Application::Application(QGuiApplication &qtApplication)
     : m_qtApplication(qtApplication)
+    , m_packageSyncManager(m_gameClient)
     , m_roomModel(m_gameClient)
-    , m_lobbyModel(m_gameClient, m_roomModel)
+    , m_lobbyModel(m_gameClient, m_packageSyncManager, m_roomModel)
 {
 }
 
@@ -33,6 +34,7 @@ bool Application::initialize()
         Qt::QueuedConnection);
 
     m_engine.rootContext()->setContextProperty(QStringLiteral("gameClient"), &m_gameClient);
+    m_engine.rootContext()->setContextProperty(QStringLiteral("packageSyncManager"), &m_packageSyncManager);
     m_engine.rootContext()->setContextProperty(QStringLiteral("lobbyModel"), &m_lobbyModel);
     m_engine.rootContext()->setContextProperty(QStringLiteral("roomModel"), &m_roomModel);
     m_engine.loadFromModule(QStringLiteral("SgsClient"), QStringLiteral("Shell"));

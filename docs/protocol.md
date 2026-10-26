@@ -1,6 +1,6 @@
 # SGS/1 TCP 通信协议
 
-> 同步来源：SgsServer `feature/m2-lobby-room-server` 分支，提交 `a95f424b82146c059d4d1d8ee7a3304a70d9c5f4`。以下协议正文与该提交一致；客户端不得单方面修改公共协议。
+> M3-A 同步来源：SgsArchitecture `422016ed12a6c982bdd9e72f75590ec4ca9b5614` 与 SgsServer `ee022ef9979295a15482c52b17df7c9a4de4b093`。SGS/1 四字节大端长度帧和四字段信封保持不变；客户端不得单方面修改公共协议。
 
 ## 1. 传输与帧格式
 
@@ -154,3 +154,22 @@ SGS/1 M1-S 没有 TLS、压缩、认证、登录、房间、游戏消息、重�
 ## 15. M2 限制
 
 M2 临时用户不持久化，没有密码、恢复令牌或跨连接身份恢复；房间不能开始游戏。尚无 Lua、卡牌/技能、数据库、资源包同步、TLS、恶意用户防护体系或复杂订阅系统。游戏规则和房间状态由服务端权威管理；客户端只提交操作意图并展示通知状态。
+
+## 16. M3-A 资源包同步
+
+HelloAck 后、EnterLobby 前必须依次完成：
+
+```text
+GetPackageManifest
+<- PackageManifestResult { manifest_id, packages, sync_timeout_ms }
+PackageReady { manifest_id }
+<- PackageReadyResult { ready: true }
+```
+
+`packages` 每项严格包含 `id`、`version`、`api_version`、`repository_url`、完整 `commit`、`manifest_sha256` 和依赖包 ID 字符串数组 `dependencies`。`manifest_id` 是按包 ID、依赖 ID 排序后的七字段数组经 RFC 8785/JCS 规范化并做 SHA-256 的小写十六进制值；空数组固定为 `4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945`。
+
+空清单仍必须发送 PackageReady。服务端仅在同一 Session 收到当前清单 ID 后标记 Ready；未完成时 EnterLobby 返回 `PACKAGE_PROTOCOL_REQUIRED`，ID 不匹配返回 `MANIFEST_ID_MISMATCH`。失败 `PackageReadyResult` 使用 `ready=false` 和 `{code,message,retryable,details?}`。断线清除 Ready，重连必须重新请求清单。
+
+`PackageManifestChanged` 是 request_id 0 的预留通知，只含新 manifest_id；合法通知使客户端回到 NotReady 并重新协商。ADR-0009 规定 M3 服务端运行期清单冻结，管理员修改只在正常重启后生效，因此当前服务端不会发送该通知，也不存在热更新语义。
+
+M3-A 不改变 Hello、Ping、Echo、大厅或房间消息。客户端通过仓库 URL 直接使用 HTTPS Git 下载，资源内容不经 SGS TCP 传输。
